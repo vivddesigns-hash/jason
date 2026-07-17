@@ -4,6 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Jason — Sign in</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -15,6 +17,7 @@
   body{ font-family:var(--sans); background:var(--canvas); color:var(--ink); min-height:100vh;
     display:flex; align-items:center; justify-content:center; padding:20px; }
   .card{ width:360px; max-width:100%; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:32px 28px; }
+  .logo{ display:block; width:56px; height:56px; margin:0 auto 12px; border-radius:14px; }
   .brand{ font-family:var(--serif); font-size:30px; font-weight:600; text-align:center; }
   .sub{ text-align:center; color:var(--ink-muted); font-size:13px; margin-top:4px; margin-bottom:24px; }
   label{ display:block; font-size:12px; font-weight:600; color:var(--ink-soft); margin:14px 0 6px; }
@@ -36,6 +39,7 @@
 </head>
 <body>
   <div class="card">
+    <img class="logo" src="/static/favicon.svg" alt="" width="56" height="56">
     <div class="brand">Jason</div>
     <div class="sub">Dwight's personal agent</div>
 
