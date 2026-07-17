@@ -143,6 +143,14 @@
   .mic.disabled { opacity:.45; }
   @keyframes micpulse { 0%,100%{ box-shadow:0 0 0 0 rgba(196,167,146,.55);} 50%{ box-shadow:0 0 0 7px rgba(196,167,146,0);} }
   .hint { text-align:center; font-size:11px; color:var(--ink-muted); margin-top:8px; }
+  .attachments { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px; }
+  .attachments .chip { display:inline-flex; align-items:center; gap:7px; background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:4px 9px; font-size:12px; color:var(--ink-soft); max-width:230px; }
+  .attachments .chip .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .attachments .chip .x { cursor:pointer; color:var(--ink-muted); font-weight:700; }
+  .attachments .chip .x:hover { color:#a24; }
+  .input-wrap.drag { border-color:var(--sage); background:var(--surface-hover); }
+  .msg .files { display:flex; flex-wrap:wrap; gap:6px; margin-top:7px; }
+  .msg .files .fchip { font-size:11px; color:var(--ink-soft); background:var(--surface); border:1px solid var(--line); border-radius:7px; padding:3px 8px; }
 
   /* ---------- CONTEXT MENU + MODAL ---------- */
   .ctx { position:fixed; z-index:50; background:var(--canvas); border:1px solid var(--line); border-radius:10px;
@@ -211,8 +219,9 @@
     <div class="log" id="log"></div>
     <div class="composer">
       <div class="composer-inner">
-        <div class="input-wrap">
-          <button class="attach" title="Attach (coming soon)">📎</button>
+        <div class="attachments" id="attachments"></div>
+        <div class="input-wrap" id="inputWrap">
+          <button class="attach" id="attach" title="Attach documents or media">📎</button>
           <textarea id="input" rows="1" placeholder="Message Jason…" autofocus></textarea>
           <button class="mic" id="mic" title="Voice input">🎤</button>
           <button class="send" id="send" title="Send">↑</button>
@@ -220,6 +229,7 @@
         <div class="hint">Cmd+K new chat · Cmd+P new project · Cmd+F search</div>
       </div>
     </div>
+    <input type="file" id="fileInput" multiple style="display:none">
   </main>
 </div>
 
@@ -344,17 +354,18 @@ function renderChat(){
     inner.innerHTML = `<div class="welcome"><h2>Jason</h2><p>Your personal agent. Ask me anything, or pick up a thread.</p></div>`;
     return;
   }
-  c.messages.forEach(m=> inner.appendChild(renderMsg(m.role, m.text, m.ts)));
+  c.messages.forEach(m=> inner.appendChild(renderMsg(m.role, m.text, m.ts, m.files)));
   log.scrollTop = log.scrollHeight;
 }
-function renderMsg(role, text, ts){
+function renderMsg(role, text, ts, files){
   const div = document.createElement("div");
   div.className = "msg "+role;
   if(role==="assistant"){
     div.innerHTML = `<div class="who-label"><span class="j">J</span>Jason</div><div class="body">${md(text)}</div>
       <div class="ts">${fmt(ts)}</div><button class="copy">Copy</button>`;
   } else {
-    div.innerHTML = `<div><div class="body">${esc(text)}</div><div class="ts">${fmt(ts)}</div></div><button class="copy">Copy</button>`;
+    const fh = (Array.isArray(files)&&files.length) ? `<div class="files">${files.map(n=>`<span class="fchip">📎 ${esc(n)}</span>`).join("")}</div>` : "";
+    div.innerHTML = `<div><div class="body">${esc(text)}</div>${fh}<div class="ts">${fmt(ts)}</div></div><button class="copy">Copy</button>`;
   }
   div.querySelector(".copy").onclick = ()=> navigator.clipboard.writeText(text);
   wireCodeCopies(div);
@@ -401,11 +412,19 @@ function nextColor(){ return PALETTE[state.projects.length % PALETTE.length]; }
 let streaming = false;
 async function send(){
   const text = input.value.trim();
-  if(!text || streaming) return;
+  const ready = pending.filter(p=>p.path);
+  if((!text && ready.length===0) || streaming) return;
   const c = cur();
   input.value=""; input.style.height="auto";
-  c.messages.push({role:"user", text, ts:Date.now()});
-  if(!c.title || c.title==="New chat"){ c.title = text.slice(0,42); }
+  const fileNames = ready.map(p=>p.name), attachPaths = ready.map(p=>p.path);
+  pending = []; renderAttachments();
+  let promptToSend = text;
+  if(attachPaths.length){
+    promptToSend = "The user attached these file(s) — read them with your file tools (Read/Bash) if relevant:\n"
+      + attachPaths.map(p=>"- "+p).join("\n") + (text ? "\n\n"+text : "\n\nPlease review the attached file(s).");
+  }
+  c.messages.push({role:"user", text, ts:Date.now(), files: fileNames.length?fileNames:undefined});
+  if(!c.title || c.title==="New chat"){ c.title = (text || fileNames[0] || "New chat").slice(0,42); }
   save(); renderSidebar(); renderChat();
 
   const innerEl = el("logInner");
@@ -420,7 +439,7 @@ async function send(){
   let acc=""; let started=false;
   try{
     const resp = await fetch("/api/chat", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({session_id: c.id, prompt: text})});
+      body: JSON.stringify({session_id: c.id, prompt: promptToSend})});
     if(resp.status===401){ location.href="/login"; return; }
     const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf="";
     while(true){
@@ -551,6 +570,39 @@ recentList.addEventListener("click", e=>{ const chat=e.target.closest("[data-cha
 input.addEventListener("input", ()=>{ input.style.height="auto"; input.style.height=Math.min(input.scrollHeight,144)+"px"; });
 input.addEventListener("keydown", e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(); } });
 sendBtn.onclick = send;
+
+// ---------- file attachments (documents + media) ----------
+let pending = [];  // {name, path, uploading, error}
+const fileInput = el("fileInput"), attachmentsEl = el("attachments"), inputWrap = el("inputWrap");
+el("attach").onclick = ()=> fileInput.click();
+fileInput.onchange = ()=>{ addFiles(fileInput.files); fileInput.value=""; };
+
+function renderAttachments(){
+  attachmentsEl.innerHTML = pending.map((p,i)=>
+    `<span class="chip"><span class="nm">📎 ${esc(p.name)}${p.uploading?" …":p.error?" ⚠":""}</span><span class="x" data-i="${i}">×</span></span>`).join("");
+  attachmentsEl.querySelectorAll(".x").forEach(x=> x.onclick=()=>{ pending.splice(+x.dataset.i,1); renderAttachments(); });
+}
+async function addFiles(list){
+  for(const f of Array.from(list)){
+    const item = {name:f.name, path:null, uploading:true, error:false};
+    pending.push(item); renderAttachments();
+    try{
+      const fd = new FormData(); fd.append("session_id", state.currentChatId||"default"); fd.append("file", f);
+      const r = await fetch("/api/upload", {method:"POST", body:fd});
+      if(r.status===401){ location.href="/login"; return; }
+      const d = await r.json().catch(()=>({}));
+      if(d.path){ item.path=d.path; item.name=d.name; } else { item.error=true; }
+    }catch(e){ item.error=true; }
+    item.uploading=false; renderAttachments();
+  }
+}
+// drag & drop anywhere on the page
+let dragDepth=0;
+window.addEventListener("dragenter", e=>{ e.preventDefault(); dragDepth++; inputWrap.classList.add("drag"); });
+window.addEventListener("dragover", e=>{ e.preventDefault(); });
+window.addEventListener("dragleave", e=>{ e.preventDefault(); if(--dragDepth<=0){ dragDepth=0; inputWrap.classList.remove("drag"); } });
+window.addEventListener("drop", e=>{ e.preventDefault(); dragDepth=0; inputWrap.classList.remove("drag");
+  if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length){ addFiles(e.dataTransfer.files); } });
 
 document.addEventListener("keydown", e=>{
   const mod = e.metaKey||e.ctrlKey; if(!mod) return;

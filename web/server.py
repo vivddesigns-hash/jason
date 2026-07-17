@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -231,6 +231,41 @@ async def chat(request: Request):
 
 def _sse(obj: dict) -> str:
     return f"data: {json.dumps(obj)}\n\n"
+
+
+# ---------- file uploads (documents + media) ----------
+UPLOAD_DIR = BASE / "uploads"
+MAX_UPLOAD = 50 * 1024 * 1024  # 50 MB
+
+
+@app.post("/api/upload")
+async def upload(session_id: str = Form("default"), file: UploadFile = File(...)):
+    raw = os.path.basename(file.filename or "file").strip() or "file"
+    safe = "".join(c for c in raw if c.isalnum() or c in " ._-()").strip() or "file"
+    sess = "".join(c for c in session_id if c.isalnum() or c in "-_")[:80] or "default"
+    d = UPLOAD_DIR / sess
+    d.mkdir(parents=True, exist_ok=True)
+    dest = d / safe
+    stem, suf, i = dest.stem, dest.suffix, 1
+    while dest.exists():
+        dest = d / f"{stem}-{i}{suf}"
+        i += 1
+    size = 0
+    try:
+        with open(dest, "wb") as out:
+            while True:
+                chunk = await file.read(262144)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_UPLOAD:
+                    out.close()
+                    dest.unlink(missing_ok=True)
+                    return JSONResponse({"error": "File too large (max 50 MB)."}, status_code=413)
+                out.write(chunk)
+    except Exception as exc:
+        return JSONResponse({"error": f"upload failed: {exc}"}, status_code=500)
+    return {"path": str(dest), "name": dest.name, "size": size}
 
 
 # ---------- history (import past transcripts) ----------
