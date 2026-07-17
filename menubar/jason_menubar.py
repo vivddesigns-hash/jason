@@ -69,7 +69,11 @@ class JasonApp(rumps.App):
     def open_app(self, _):
         if not _running():
             _launchctl("load", PLIST)
-        subprocess.run(["open", URL])
+        # Prefer opening inside Calm Desk (Dwight's workspace) over the browser.
+        if os.path.exists("/Applications/Calm Desk.app"):
+            subprocess.run(["open", "-a", "Calm Desk"])
+        else:
+            subprocess.run(["open", URL])
 
     def start(self, _):
         _launchctl("load", PLIST)
