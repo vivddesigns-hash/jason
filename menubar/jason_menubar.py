@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Jason menu-bar controller.
 
-Puts a Jason icon in the macOS menu bar with Open / Start / Stop / Restart,
-and a live running/stopped status. Start & Stop control the local Jason
-launchd service (com.floatai.jason) — Stop is your instant kill switch.
+A Jason icon in the macOS menu bar with Open / Start / Stop / Restart and a live
+running/stopped status. Controls the local Jason launchd service
+(com.floatai.jason). Stop is a real kill switch: it boots the job out AND
+disables it, so it stays stopped (no KeepAlive respawn, no login restart) until
+you press Start.
 """
 
 import os
@@ -16,13 +18,19 @@ PLIST = f"{HOME}/Library/LaunchAgents/com.floatai.jason.plist"
 LABEL = "com.floatai.jason"
 URL = "http://localhost:8787"
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jason-menubar.png")
+DOMAIN = f"gui/{os.getuid()}"
+TARGET = f"{DOMAIN}/{LABEL}"
+
+
+def _lc(*args):
+    subprocess.run(["launchctl", *args], capture_output=True, text=True)
 
 
 def _running() -> bool:
     try:
         out = subprocess.run(["launchctl", "list"], capture_output=True, text=True).stdout
         for line in out.splitlines():
-            if LABEL in line:
+            if line.endswith(LABEL):
                 pid = line.split("\t")[0].strip()
                 return pid.isdigit() and pid != "0"
     except Exception:
@@ -30,8 +38,14 @@ def _running() -> bool:
     return False
 
 
-def _launchctl(*args):
-    subprocess.run(["launchctl", *args], capture_output=True, text=True)
+def _start():
+    _lc("enable", TARGET)          # undo any prior disable
+    _lc("bootstrap", DOMAIN, PLIST)  # load + RunAtLoad starts it
+
+
+def _stop():
+    _lc("bootout", TARGET)         # stop + unload now
+    _lc("disable", TARGET)         # stay stopped (no login restart)
 
 
 def _notify(msg: str):
@@ -46,7 +60,7 @@ class JasonApp(rumps.App):
         super().__init__("Jason",
                          icon=ICON if os.path.exists(ICON) else None,
                          template=False, quit_button=None)
-        self.status_item = rumps.MenuItem("Checking…")  # informational (no callback)
+        self.status_item = rumps.MenuItem("Checking…")
         self.menu = [
             self.status_item,
             None,
@@ -68,22 +82,22 @@ class JasonApp(rumps.App):
 
     def open_app(self, _):
         if not _running():
-            _launchctl("load", PLIST)
+            _start()
         subprocess.run(["open", URL])  # default browser
 
     def start(self, _):
-        _launchctl("load", PLIST)
+        _start()
         _notify("Starting Jason…")
         self.refresh(None)
 
     def stop(self, _):
-        _launchctl("unload", PLIST)
+        _stop()
         _notify("Jason stopped.")
         self.refresh(None)
 
     def restart(self, _):
-        _launchctl("unload", PLIST)
-        _launchctl("load", PLIST)
+        _stop()
+        _start()
         _notify("Jason restarted.")
         self.refresh(None)
 
