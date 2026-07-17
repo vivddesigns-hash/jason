@@ -40,27 +40,32 @@ def _read(path: Path, strip: bool = False) -> str:
 # `remember`/`recall` are not dedicated tools here — memory is files plus the
 # built-in Read/Write/Edit/Glob/Grep tools.
 MEMORY_ADAPTER = """
-# How your memory works on this runtime
+# How your memory works
 
-You are running on the Claude Agent SDK. You do NOT have dedicated `remember` /
-`recall` tools. Your memory is plain files, and you act on them with your
-built-in file tools. Paths are relative to your working directory.
+You have two memory tools — use them:
 
-- **To remember something:** append ONE line to `memory/buffer.md` (use Edit to
-  append; never overwrite what's already there). Do this the moment you learn a
-  concrete fact, preference, name, time, plan, or correction. Corrections are
-  the highest priority.
-- **To recall:** Grep / Glob / Read across `memory/` before you ask the user or
-  hedge. Start with `memory/essentials.md`, `memory/threads.md`,
-  `memory/recent.md`, then `memory/concepts/*` and `memory/archive/*`.
+- **`remember(fact)`** — save a fact the moment you learn something concrete (a
+  preference, name, date, plan, commitment, correction, health detail, routine).
+  One clear fact per call. Default to remembering; it's cheap. Corrections are
+  the highest priority — `remember` them immediately.
+- **`recall(query)`** — search your memory before you ask the user or hedge.
+  Pass a few keywords. Call it whenever the user references someone/something you
+  should know, or you feel a gap. Searching costs nothing; guessing costs trust.
+  Call it several times per conversation.
+
+Your memory also lives as files you can read/edit directly for deeper work:
+`memory/essentials.md`, `memory/threads.md`, `memory/recent.md`,
+`memory/buffer.md`, `memory/concepts/*`, `memory/archive/*`. A background
+consolidation job periodically files `buffer.md` items into the right concept
+pages, so you don't have to organise them yourself.
+
 - **Scratchpad:** overwrite `soul/NOW.md` whenever your current state changes.
 - **Soul:** when the user tells you (or you observe) how they want to be worked
   with, edit the "Working with [User]" section of `soul/SOUL.md` that same turn.
   Read the file first and match the existing text exactly before editing.
 
-The blocks above (soul, identity, scratchpad, and the top-level memory files)
-are re-read and injected fresh on every turn, so anything you write to those
-files will be in your context next turn.
+The soul, identity, scratchpad, and top-level memory files are re-read and
+injected fresh every turn, so anything you write there is in your context next turn.
 """.strip()
 
 

@@ -22,6 +22,7 @@ from claude_agent_sdk import (
 
 from .persona import BASE, build_system_prompt
 from .hq_mcp import HQ_TOOL_NAMES, hq_server
+from .memory_tools import MEM_TOOL_NAMES, mem_server
 
 MODEL = os.environ.get("JASON_MODEL", "claude-haiku-4-5-20251001")
 
@@ -41,7 +42,7 @@ ALLOWED_TOOLS = [
     "WebSearch",
     "WebFetch",
     "TodoWrite",
-] + HQ_TOOL_NAMES  # HQ bridge: email/calendar/ClickUp/documents
+] + HQ_TOOL_NAMES + MEM_TOOL_NAMES  # HQ bridge + memory (remember/recall)
 
 # Guard the most destructive shell patterns even in bypass mode.
 DISALLOWED_TOOLS = [
@@ -76,7 +77,7 @@ def _make_options(resume: str | None) -> ClaudeAgentOptions:
         disallowed_tools=DISALLOWED_TOOLS,
         permission_mode="bypassPermissions",   # headless: no human to approve
         add_dirs=EXTRA_DIRS,                    # local install: your Mac folders
-        mcp_servers={"hq": hq_server},         # in-process HQ bridge
+        mcp_servers={"hq": hq_server, "mem": mem_server},  # HQ bridge + memory
         resume=resume,
     )
 

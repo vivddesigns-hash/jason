@@ -13,8 +13,9 @@ if [ -f .env ]; then set -a; . ./.env; set +a; fi
 if [ -d .venv ]; then . .venv/bin/activate; fi
 
 case "${1:-web}" in
-  heartbeat) exec python -m heartbeat.run_heartbeat ;;
-  persona)   exec python -m agent.persona ;;
+  heartbeat)   exec python -m heartbeat.run_heartbeat ;;
+  consolidate) exec python -m agent.consolidate ;;
+  persona)     exec python -m agent.persona ;;
   web)       exec uvicorn web.server:app --host "${HOST:-127.0.0.1}" --port "${PORT:-8787}" ;;
   *) echo "unknown command: $1"; exit 1 ;;
 esac
