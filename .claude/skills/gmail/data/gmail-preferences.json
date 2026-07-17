@@ -1,0 +1,30 @@
+{
+  "blocklist": [
+    "hello@team.emergent.sh",
+    "noreply@gohighlevel.com",
+    "invoice+statements+acct_1qmlxnihzbhimimi@stripe.com",
+    "no-reply@accounts.google.com",
+    "email@musicbizworldwide.com",
+    "info@mandy.com",
+    "kits-team@kits.ai",
+    "no-reply@community.youversion.com",
+    "astepfwd@48087977.mailchimpapp.com",
+    "notification@service.tiktok.com",
+    "support@tryholo.ai",
+    "mailer-daemon@googlemail.com",
+    "newsletter@email.hm.com",
+    "lana.hartzog@outsourceddoers.com",
+    "newsletter@booklinker.com",
+    "help@trysintra.com",
+    "noreply@musicbizworldwide.com",
+    "team@mail.perplexity.ai",
+    "noreply@mandy.com",
+    "costcouk@email.costco.co.uk",
+    "bark@bark.butternutbox.com",
+    "hoover.info@chgofficial.com",
+    "research@surveys.screwfix.com",
+    "contact@zable.co.uk",
+    "delivery@invoicely.com"
+  ],
+  "safelist": []
+}

@@ -1,0 +1,12 @@
+.env
+.sessions.json
+__pycache__/
+*.pyc
+.venv/
+venv/
+heartbeat.log
+auth.json
+state.json
+state.json.tmp
+recovery-code.txt
+memory/

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Jason — Sign in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --canvas:#FDFCF8; --surface:#F4F2EC; --line:#E6E4DF; --line-focus:#CFCBBF; --ink:#2D2B2A;
+    --ink-soft:#5A5753; --ink-muted:#918F8A; --sage:#8E9CA3; --sage-dark:#6F7D84; --terra:#C4A792;
+    --serif:"Newsreader",Georgia,serif; --sans:"Manrope",system-ui,sans-serif; }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ font-family:var(--sans); background:var(--canvas); color:var(--ink); min-height:100vh;
+    display:flex; align-items:center; justify-content:center; padding:20px; }
+  .card{ width:360px; max-width:100%; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:32px 28px; }
+  .brand{ font-family:var(--serif); font-size:30px; font-weight:600; text-align:center; }
+  .sub{ text-align:center; color:var(--ink-muted); font-size:13px; margin-top:4px; margin-bottom:24px; }
+  label{ display:block; font-size:12px; font-weight:600; color:var(--ink-soft); margin:14px 0 6px; }
+  input{ width:100%; padding:11px 13px; border:1px solid var(--line); border-radius:10px; background:var(--canvas);
+    font-family:inherit; font-size:14px; color:var(--ink); }
+  input:focus{ outline:none; border-color:var(--line-focus); }
+  button.primary{ width:100%; margin-top:20px; padding:12px; background:var(--sage); color:#fff; border:none;
+    border-radius:10px; font-family:inherit; font-weight:600; font-size:14px; cursor:pointer; }
+  button.primary:hover{ background:var(--sage-dark); }
+  .link{ display:block; text-align:center; margin-top:16px; font-size:13px; color:var(--sage-dark); cursor:pointer;
+    background:none; border:none; width:100%; font-family:inherit; }
+  .link:hover{ text-decoration:underline; }
+  .err{ color:#a24; font-size:13px; margin-top:12px; text-align:center; min-height:16px; }
+  .hide{ display:none; }
+  .note{ font-size:12px; color:var(--ink-muted); margin-top:10px; line-height:1.5; }
+  .code-out{ font-family:var(--serif); font-size:20px; letter-spacing:.04em; text-align:center; background:var(--canvas);
+    border:1px dashed var(--terra); border-radius:10px; padding:14px; margin-top:14px; word-break:break-all; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">Jason</div>
+    <div class="sub">Dwight's personal agent</div>
+
+    <!-- LOGIN -->
+    <form id="loginForm">
+      <label for="pw">Password</label>
+      <input id="pw" type="password" autocomplete="current-password" autofocus>
+      <button class="primary" type="submit">Log in</button>
+      <div class="err" id="loginErr"></div>
+      <button type="button" class="link" id="toReset">Forgot password?</button>
+    </form>
+
+    <!-- RESET -->
+    <form id="resetForm" class="hide">
+      <label for="code">Recovery code</label>
+      <input id="code" placeholder="A1B2-C3D4-E5F6-7890" autocomplete="off">
+      <label for="npw">New password</label>
+      <input id="npw" type="password" autocomplete="new-password" placeholder="at least 6 characters">
+      <button class="primary" type="submit">Reset password</button>
+      <div class="err" id="resetErr"></div>
+      <button type="button" class="link" id="toLogin">Back to login</button>
+    </form>
+
+    <!-- SUCCESS: show new recovery code -->
+    <div id="done" class="hide">
+      <div class="sub" style="margin:6px 0 0">Password reset. Save your new recovery code:</div>
+      <div class="code-out" id="newCode"></div>
+      <div class="note">Store this somewhere safe (e.g. 1Password). You'll need it if you forget your password again. It replaces the old one.</div>
+      <button class="primary" id="goApp">Continue to Jason</button>
+    </div>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+function show(which){ ["loginForm","resetForm","done"].forEach(f=> $(f).classList.toggle("hide", f!==which)); }
+
+$("toReset").onclick = ()=>{ $("loginErr").textContent=""; show("resetForm"); $("code").focus(); };
+$("toLogin").onclick = ()=>{ $("resetErr").textContent=""; show("loginForm"); $("pw").focus(); };
+$("goApp").onclick = ()=> location.href="/";
+
+$("loginForm").onsubmit = async (e)=>{
+  e.preventDefault(); $("loginErr").textContent="";
+  try{
+    const r = await fetch("/api/login", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({password: $("pw").value})});
+    if(r.ok){ location.href="/"; }
+    else { const d=await r.json().catch(()=>({})); $("loginErr").textContent = d.error || "Login failed."; }
+  }catch(err){ $("loginErr").textContent = "Network error."; }
+};
+
+$("resetForm").onsubmit = async (e)=>{
+  e.preventDefault(); $("resetErr").textContent="";
+  try{
+    const r = await fetch("/api/forgot", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({recovery_code: $("code").value, new_password: $("npw").value})});
+    const d = await r.json().catch(()=>({}));
+    if(r.ok && d.ok){ $("newCode").textContent = d.recovery_code; show("done"); }
+    else { $("resetErr").textContent = d.error || "Reset failed."; }
+  }catch(err){ $("resetErr").textContent = "Network error."; }
+};
+</script>
+</body>
+</html>
