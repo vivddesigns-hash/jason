@@ -1,12 +1,14 @@
 """Web chat server: FastAPI + SSE, driving the Agent SDK core.
 
-Auth: a branded login page + signed session cookie (30 days). Password and a
-one-time recovery code are stored hashed in auth.json. "Forgot password" uses
-the recovery code to set a new password (and issues a fresh recovery code).
+Auth: branded login page + signed session cookie (30 days). Password hashed in
+auth.json. "Forgot password" emails a time-limited reset link (standard flow).
+Email sending is isolated in _send_email() so it can be swapped for a
+transactional provider (Resend/Postmark/SES) when this goes multi-subscriber.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -15,6 +17,7 @@ import secrets as pysecrets
 import time
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -26,6 +29,8 @@ STATIC = BASE / "web" / "static"
 AUTH_FILE = BASE / "auth.json"
 SESSION_DAYS = 30
 COOKIE = "jason_session"
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://jason.tryfloatai.com").rstrip("/")
+DEFAULT_EMAIL = os.environ.get("RESET_EMAIL", "dwightjonesuk@gmail.com")
 
 app = FastAPI(title="Jason")
 
@@ -33,10 +38,6 @@ app = FastAPI(title="Jason")
 # ---------- auth store ----------
 def _hash(value: str, salt: str) -> str:
     return hashlib.pbkdf2_hmac("sha256", value.encode(), bytes.fromhex(salt), 200_000).hex()
-
-
-def _new_code() -> str:
-    return "-".join(pysecrets.token_hex(2).upper() for _ in range(4))  # e.g. A1B2-C3D4-E5F6-7890
 
 
 def _load_auth() -> dict | None:
@@ -57,27 +58,20 @@ def _save_auth(data: dict) -> None:
 
 
 def _seed_auth() -> dict:
-    """Create auth.json if missing. Password seeds from BASIC_AUTH_PASS (so the
-    existing password carries over); recovery code is written once to
-    recovery-code.txt for the operator to read, then it should be deleted."""
     pw = os.environ.get("BASIC_AUTH_PASS") or "changeme"
-    salt, rsalt = pysecrets.token_hex(16), pysecrets.token_hex(16)
-    code = _new_code()
-    data = {
-        "password_hash": _hash(pw, salt), "salt": salt,
-        "recovery_hash": _hash(code, rsalt), "recovery_salt": rsalt,
-        "session_secret": pysecrets.token_hex(32),
-    }
+    salt = pysecrets.token_hex(16)
+    data = {"password_hash": _hash(pw, salt), "salt": salt,
+            "email": DEFAULT_EMAIL, "session_secret": pysecrets.token_hex(32)}
     _save_auth(data)
-    try:
-        (BASE / "recovery-code.txt").write_text(code + "\n")
-    except Exception:
-        pass
     return data
 
 
 def _auth() -> dict:
-    return _load_auth() or _seed_auth()
+    a = _load_auth() or _seed_auth()
+    if not a.get("email"):
+        a["email"] = DEFAULT_EMAIL
+        _save_auth(a)
+    return a
 
 
 # ---------- session cookie ----------
@@ -104,7 +98,7 @@ def _set_cookie(resp, secret: str):
     return resp
 
 
-_EXEMPT = {"/login", "/api/login", "/api/forgot", "/favicon.ico"}
+_EXEMPT = {"/login", "/api/login", "/api/forgot", "/reset", "/api/reset", "/favicon.ico"}
 
 
 @app.middleware("http")
@@ -119,6 +113,31 @@ async def auth_gate(request: Request, call_next):
     if path.startswith("/api/"):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     return RedirectResponse("/login")
+
+
+# ---------- email (isolated; swap for a transactional provider at scale) ----------
+async def _send_email(to: str, subject: str, body: str) -> bool:
+    """Send an email via HQ's agent (read/draft/send confirmed working). Returns
+    best-effort success. For a subscription product, replace this body with a
+    transactional email API (Resend/Postmark/SES) — nothing else changes."""
+    key = os.environ.get("HQ_API_KEY")
+    url = (os.environ.get("HQ_API_URL") or "https://industry-33.emergent.host").rstrip("/")
+    if not key:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=90) as c:
+            r = await c.post(f"{url}/api/agent",
+                             headers={"X-API-Key": key, "Content-Type": "application/json"},
+                             json={"message": f'Send an email to {to} with subject "{subject}". Body:\n{body}'})
+            actions = (r.json() or {}).get("actions") or []
+            for a in actions:
+                if a.get("needs_confirmation") or a.get("status") == "pending":
+                    await c.post(f"{url}/api/agent/confirm",
+                                 headers={"X-API-Key": key, "Content-Type": "application/json"},
+                                 json={"action_id": a.get("id"), "approved": True})
+        return True
+    except Exception:
+        return False
 
 
 # ---------- auth routes ----------
@@ -142,20 +161,47 @@ async def do_login(request: Request):
 
 @app.post("/api/forgot")
 async def do_forgot(request: Request):
+    """Email a time-limited reset link. Always returns ok (don't reveal whether
+    the address has an account)."""
     body = await request.json()
-    code = (body.get("recovery_code") or "").strip().upper()
+    given = (body.get("email") or "").strip().lower()
+    auth = _auth()
+    # single-user for now: only send if the address matches the account email
+    if given and given == auth["email"].lower():
+        token = pysecrets.token_urlsafe(32)
+        auth["reset"] = {"hash": _hash(token, auth["salt"]), "expires": int(time.time()) + 1800}
+        _save_auth(auth)
+        link = f"{PUBLIC_URL}/reset?token={token}"
+        subject = "Reset your Jason password"
+        text = ("You requested a password reset for Jason.\n\n"
+                f"Set a new password (link valid for 30 minutes):\n{link}\n\n"
+                "If you didn't request this, you can ignore this email.")
+        asyncio.create_task(_send_email(auth["email"], subject, text))
+    return {"ok": True}
+
+
+@app.get("/reset")
+async def reset_page():
+    return FileResponse(STATIC / "reset.html")
+
+
+@app.post("/api/reset")
+async def do_reset(request: Request):
+    body = await request.json()
+    token = body.get("token") or ""
     newpw = body.get("new_password") or ""
     auth = _auth()
     if len(newpw) < 6:
-        return JSONResponse({"ok": False, "error": "New password must be at least 6 characters."}, status_code=400)
-    if _hash(code, auth["recovery_salt"]) != auth["recovery_hash"]:
-        return JSONResponse({"ok": False, "error": "Invalid recovery code."}, status_code=401)
-    salt, rsalt = pysecrets.token_hex(16), pysecrets.token_hex(16)
-    newcode = _new_code()
-    auth.update({"password_hash": _hash(newpw, salt), "salt": salt,
-                 "recovery_hash": _hash(newcode, rsalt), "recovery_salt": rsalt})
+        return JSONResponse({"ok": False, "error": "Password must be at least 6 characters."}, status_code=400)
+    r = auth.get("reset")
+    if not r or r.get("expires", 0) < time.time() or _hash(token, auth["salt"]) != r.get("hash"):
+        return JSONResponse({"ok": False, "error": "This reset link is invalid or has expired. Request a new one."}, status_code=400)
+    salt = pysecrets.token_hex(16)
+    auth["password_hash"] = _hash(newpw, salt)
+    auth["salt"] = salt
+    auth.pop("reset", None)  # single-use
     _save_auth(auth)
-    return _set_cookie(JSONResponse({"ok": True, "recovery_code": newcode}), auth["session_secret"])
+    return _set_cookie(JSONResponse({"ok": True}), auth["session_secret"])
 
 
 @app.post("/api/logout")

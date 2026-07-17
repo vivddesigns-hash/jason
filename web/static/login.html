@@ -52,23 +52,20 @@
       <button type="button" class="link" id="toReset">Forgot password?</button>
     </form>
 
-    <!-- RESET -->
+    <!-- FORGOT (email a reset link) -->
     <form id="resetForm" class="hide">
-      <label for="code">Recovery code</label>
-      <input id="code" placeholder="A1B2-C3D4-E5F6-7890" autocomplete="off">
-      <label for="npw">New password</label>
-      <input id="npw" type="password" autocomplete="new-password" placeholder="at least 6 characters">
-      <button class="primary" type="submit">Reset password</button>
+      <div class="note" style="margin:0 0 4px">Enter your account email and we'll send you a link to set a new password.</div>
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="email" placeholder="you@example.com">
+      <button class="primary" type="submit">Send reset link</button>
       <div class="err" id="resetErr"></div>
       <button type="button" class="link" id="toLogin">Back to login</button>
     </form>
 
-    <!-- SUCCESS: show new recovery code -->
+    <!-- SENT -->
     <div id="done" class="hide">
-      <div class="sub" style="margin:6px 0 0">Password reset. Save your new recovery code:</div>
-      <div class="code-out" id="newCode"></div>
-      <div class="note">Store this somewhere safe (e.g. 1Password). You'll need it if you forget your password again. It replaces the old one.</div>
-      <button class="primary" id="goApp">Continue to Jason</button>
+      <div class="sub" style="margin:6px 0 0">Check your email — if that address has an account, a reset link is on its way (valid 30 minutes).</div>
+      <button class="primary" id="goLogin" style="margin-top:18px">Back to login</button>
     </div>
   </div>
 
@@ -76,9 +73,9 @@
 const $ = id => document.getElementById(id);
 function show(which){ ["loginForm","resetForm","done"].forEach(f=> $(f).classList.toggle("hide", f!==which)); }
 
-$("toReset").onclick = ()=>{ $("loginErr").textContent=""; show("resetForm"); $("code").focus(); };
+$("toReset").onclick = ()=>{ $("loginErr").textContent=""; show("resetForm"); $("email").focus(); };
 $("toLogin").onclick = ()=>{ $("resetErr").textContent=""; show("loginForm"); $("pw").focus(); };
-$("goApp").onclick = ()=> location.href="/";
+$("goLogin").onclick = ()=>{ show("loginForm"); $("pw").focus(); };
 
 $("loginForm").onsubmit = async (e)=>{
   e.preventDefault(); $("loginErr").textContent="";
@@ -92,12 +89,12 @@ $("loginForm").onsubmit = async (e)=>{
 
 $("resetForm").onsubmit = async (e)=>{
   e.preventDefault(); $("resetErr").textContent="";
+  const email = $("email").value.trim();
+  if(!email){ $("resetErr").textContent = "Enter your email."; return; }
   try{
-    const r = await fetch("/api/forgot", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({recovery_code: $("code").value, new_password: $("npw").value})});
-    const d = await r.json().catch(()=>({}));
-    if(r.ok && d.ok){ $("newCode").textContent = d.recovery_code; show("done"); }
-    else { $("resetErr").textContent = d.error || "Reset failed."; }
+    await fetch("/api/forgot", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({email})});
+    show("done");  // always show the same message (don't reveal if the address exists)
   }catch(err){ $("resetErr").textContent = "Network error."; }
 };
 </script>

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Jason — Set a new password</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --canvas:#FDFCF8; --surface:#F4F2EC; --line:#E6E4DF; --line-focus:#CFCBBF; --ink:#2D2B2A;
+    --ink-soft:#5A5753; --ink-muted:#918F8A; --sage:#8E9CA3; --sage-dark:#6F7D84;
+    --serif:"Newsreader",Georgia,serif; --sans:"Manrope",system-ui,sans-serif; }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ font-family:var(--sans); background:var(--canvas); color:var(--ink); min-height:100vh;
+    display:flex; align-items:center; justify-content:center; padding:20px; }
+  .card{ width:360px; max-width:100%; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:32px 28px; }
+  .logo{ display:block; width:56px; height:56px; margin:0 auto 12px; border-radius:14px; }
+  .brand{ font-family:var(--serif); font-size:26px; font-weight:600; text-align:center; }
+  .sub{ text-align:center; color:var(--ink-muted); font-size:13px; margin-top:4px; margin-bottom:22px; }
+  label{ display:block; font-size:12px; font-weight:600; color:var(--ink-soft); margin:14px 0 6px; }
+  input{ width:100%; padding:11px 13px; border:1px solid var(--line); border-radius:10px; background:var(--canvas);
+    font-family:inherit; font-size:14px; color:var(--ink); }
+  input:focus{ outline:none; border-color:var(--line-focus); }
+  button.primary{ width:100%; margin-top:20px; padding:12px; background:var(--sage); color:#fff; border:none;
+    border-radius:10px; font-family:inherit; font-weight:600; font-size:14px; cursor:pointer; }
+  button.primary:hover{ background:var(--sage-dark); }
+  .link{ display:block; text-align:center; margin-top:16px; font-size:13px; color:var(--sage-dark);
+    text-decoration:none; }
+  .link:hover{ text-decoration:underline; }
+  .err{ color:#a24; font-size:13px; margin-top:12px; text-align:center; min-height:16px; }
+  .hide{ display:none; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <img class="logo" src="/static/favicon.svg" alt="">
+    <div class="brand">Set a new password</div>
+    <div class="sub">Choose a new password for your Jason account.</div>
+
+    <form id="form">
+      <label for="npw">New password</label>
+      <input id="npw" type="password" autocomplete="new-password" placeholder="at least 6 characters" autofocus>
+      <label for="cpw">Confirm password</label>
+      <input id="cpw" type="password" autocomplete="new-password">
+      <button class="primary" type="submit">Set password</button>
+      <div class="err" id="err"></div>
+    </form>
+
+    <div id="done" class="hide">
+      <div class="sub" style="margin:8px 0 0">Password updated. You're logged in.</div>
+      <button class="primary" id="go">Continue to Jason</button>
+    </div>
+    <a class="link" href="/login">Back to login</a>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+const token = new URLSearchParams(location.search).get("token") || "";
+$("go").onclick = ()=> location.href="/";
+if(!token){ $("err").textContent = "This reset link is missing its token. Request a new one from the login page."; }
+
+$("form").onsubmit = async (e)=>{
+  e.preventDefault(); $("err").textContent="";
+  const npw = $("npw").value, cpw = $("cpw").value;
+  if(npw.length < 6){ $("err").textContent = "Password must be at least 6 characters."; return; }
+  if(npw !== cpw){ $("err").textContent = "Passwords don't match."; return; }
+  try{
+    const r = await fetch("/api/reset", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({token, new_password: npw})});
+    const d = await r.json().catch(()=>({}));
+    if(r.ok && d.ok){ $("form").classList.add("hide"); $("done").classList.remove("hide"); }
+    else { $("err").textContent = d.error || "Reset failed."; }
+  }catch(err){ $("err").textContent = "Network error."; }
+};
+</script>
+</body>
+</html>
