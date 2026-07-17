@@ -117,8 +117,11 @@ async def stream_chat(web_session_id: str, prompt: str) -> AsyncIterator[dict]:
             sid = getattr(message, "session_id", None)
             subtype = getattr(message, "subtype", None)
             if sid and (subtype is not None or getattr(message, "result", None) is not None):
-                sessions[web_session_id] = sid
-                _save_sessions(sessions)
+                # re-load before write so concurrent chats don't clobber each
+                # other's session mapping
+                latest = _load_sessions()
+                latest[web_session_id] = sid
+                _save_sessions(latest)
                 yield {"type": "done", "session_id": sid}
     except Exception as exc:  # surface, don't crash the stream
         yield {"type": "error", "error": f"{type(exc).__name__}: {exc}"}

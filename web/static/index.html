@@ -291,7 +291,7 @@ async function bootstrap(){
   setInterval(poll, 4000);
 }
 async function poll(){
-  if(streaming) return; // don't clobber a reply mid-stream
+  if(anyStreaming()) return; // don't clobber a reply mid-stream (any chat)
   try{
     const d = await fetch("/api/rev").then(r=>r.json());
     if(d && d.rev>rev){
@@ -359,20 +359,27 @@ function renderChat(){
     inner.innerHTML = `<div class="welcome"><h2>Jason</h2><p>Your personal agent. Ask me anything, or pick up a thread.</p></div>`;
     return;
   }
-  c.messages.forEach(m=> inner.appendChild(renderMsg(m.role, m.text, m.ts, m.files)));
+  c.messages.forEach(m=> inner.appendChild(renderMsg(m.role, m.text, m.ts, m.files, m._working)));
+  if(streamingChats.has(c.id)){
+    const w = document.createElement("div"); w.className="working"; w.id="streaming-working";
+    w.innerHTML = `<span class="dots"><i></i><i></i><i></i></span><span class="wlabel">${esc(workingLabel[c.id]||"Jason is working…")}</span>`;
+    inner.appendChild(w);
+  }
   log.scrollTop = log.scrollHeight;
 }
-function renderMsg(role, text, ts, files){
+function renderMsg(role, text, ts, files, working){
   const div = document.createElement("div");
   div.className = "msg "+role;
   if(role==="assistant"){
-    div.innerHTML = `<div class="who-label"><span class="j">J</span>Jason</div><div class="body">${md(text)}</div>
-      <div class="ts">${fmt(ts)}</div><button class="copy">Copy</button>`;
+    const bid = working ? ' id="streaming-body"' : '';
+    const foot = working ? '' : `<div class="ts">${fmt(ts)}</div><button class="copy">Copy</button>`;
+    div.innerHTML = `<div class="who-label"><span class="j">J</span>Jason</div><div class="body"${bid}>${md(text)}</div>${foot}`;
   } else {
     const fh = (Array.isArray(files)&&files.length) ? `<div class="files">${files.map(n=>`<span class="fchip">📎 ${esc(n)}</span>`).join("")}</div>` : "";
     div.innerHTML = `<div><div class="body">${esc(text)}</div>${fh}<div class="ts">${fmt(ts)}</div></div><button class="copy">Copy</button>`;
   }
-  div.querySelector(".copy").onclick = ()=> navigator.clipboard.writeText(text);
+  const cb = div.querySelector(".copy");
+  if(cb) cb.onclick = ()=> navigator.clipboard.writeText(text);
   wireCodeCopies(div);
   return div;
 }
@@ -409,20 +416,40 @@ function newChat(projectId=null){
   const c = {id:genId(), projectId, title:"New chat", createdAt:Date.now(), pinned:false, messages:[]};
   state.chats.push(c); state.currentChatId=c.id;
   if(projectId){ const p=projById(projectId); if(p) p.collapsed=false; }  // reveal the new chat
-  save(); renderSidebar(); renderChat(); closeNav(); input.focus();
+  save(); renderSidebar(); renderChat(); restoreDraft(); updateSendState(); closeNav(); input.focus();
 }
-function openChat(id){ state.currentChatId=id; save(); renderSidebar(); renderChat(); closeNav(); input.focus(); }
+function openChat(id){ state.currentChatId=id; save(); renderSidebar(); renderChat(); restoreDraft(); updateSendState(); closeNav(); input.focus(); }
 function toggleProject(id){ const p=projById(id); p.collapsed=!p.collapsed; save(); renderSidebar(); }
 function nextColor(){ return PALETTE[state.projects.length % PALETTE.length]; }
 
-// ---------- send / stream (integration preserved) ----------
-let streaming = false;
+// ---------- per-chat send / stream (chats are independent) ----------
+const drafts = {};                 // ephemeral input drafts, per chat id
+const streamingChats = new Set();  // chat ids with a reply in progress
+const workingLabel = {};           // current "working…" text, per chat id
+const anyStreaming = () => streamingChats.size > 0;
+function updateSendState(){ sendBtn.disabled = streamingChats.has(state.currentChatId); }
+function restoreDraft(){
+  input.value = drafts[state.currentChatId] || "";
+  input.style.height="auto"; input.style.height=Math.min(input.scrollHeight,144)+"px";
+}
+function streamingMsgOf(c){ for(let i=c.messages.length-1;i>=0;i--){ if(c.messages[i]._working) return c.messages[i]; } return null; }
+function liveUpdate(chatId){
+  const c = state.chats.find(x=>x.id===chatId); if(!c) return;
+  const m = streamingMsgOf(c);
+  const b = document.getElementById("streaming-body");
+  if(b && m){ b.innerHTML = md(m.text); wireCodeCopies(b.parentElement); }
+  const w = document.getElementById("streaming-working");
+  if(w){ const l=w.querySelector(".wlabel"); if(l) l.textContent = workingLabel[chatId] || "Jason is working…"; }
+  log.scrollTop = log.scrollHeight;
+}
+
 async function send(){
+  const c = cur();
   const text = input.value.trim();
   const ready = pending.filter(p=>p.path);
-  if((!text && ready.length===0) || streaming) return;
-  const c = cur();
-  input.value=""; input.style.height="auto";
+  if((!text && ready.length===0) || streamingChats.has(c.id)) return;  // block only THIS chat
+  const chatId = c.id;
+  input.value=""; input.style.height="auto"; drafts[chatId]="";
   const fileNames = ready.map(p=>p.name), attachPaths = ready.map(p=>p.path);
   pending = []; renderAttachments();
   let promptToSend = text;
@@ -432,25 +459,16 @@ async function send(){
   }
   c.messages.push({role:"user", text, ts:Date.now(), files: fileNames.length?fileNames:undefined});
   if(!c.title || c.title==="New chat"){ c.title = (text || fileNames[0] || "New chat").slice(0,42); }
-  save(); renderSidebar(); renderChat();
+  const aMsg = {role:"assistant", text:"", ts:Date.now(), _working:true};
+  c.messages.push(aMsg);
+  streamingChats.add(chatId); workingLabel[chatId]="Jason is working…";
+  save(); renderSidebar();
+  if(state.currentChatId===chatId){ renderChat(); updateSendState(); }
 
-  const innerEl = el("logInner");
-  const aDiv = document.createElement("div"); aDiv.className="msg assistant";
-  aDiv.innerHTML = `<div class="who-label"><span class="j">J</span>Jason</div><div class="body"></div>`;
-  innerEl.appendChild(aDiv);
-  const body = aDiv.querySelector(".body");
-  // "working" indicator — sits right after Jason's message while the turn runs
-  const working = document.createElement("div"); working.className="working";
-  working.innerHTML = `<span class="dots"><i></i><i></i><i></i></span><span class="wlabel">Jason is working…</span>`;
-  innerEl.appendChild(working);
-  const wlabel = working.querySelector(".wlabel");
-  log.scrollTop = log.scrollHeight;
-
-  streaming=true; sendBtn.disabled=true;
-  let acc=""; let started=false;
+  let acc="";
   try{
     const resp = await fetch("/api/chat", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({session_id: c.id, prompt: promptToSend})});
+      body: JSON.stringify({session_id: chatId, prompt: promptToSend})});
     if(resp.status===401){ location.href="/login"; return; }
     const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf="";
     while(true){
@@ -461,27 +479,24 @@ async function send(){
         const line = frame.split("\n").find(l=>l.startsWith("data: ")); if(!line) continue;
         let evt; try{ evt=JSON.parse(line.slice(6)); }catch(e){ continue; }
         if(evt.type==="text"){
-          started=true;
-          acc += evt.text; body.innerHTML = md(acc); wireCodeCopies(aDiv);
-          wlabel.textContent = "Jason is working…";
-          log.scrollTop = log.scrollHeight;
+          acc += evt.text; aMsg.text=acc; workingLabel[chatId]="Jason is working…";
+          if(state.currentChatId===chatId) liveUpdate(chatId);
         } else if(evt.type==="tool"){
-          wlabel.textContent = "using " + evt.name + "…";
-          log.scrollTop = log.scrollHeight;
+          workingLabel[chatId]="using "+evt.name+"…";
+          if(state.currentChatId===chatId) liveUpdate(chatId);
         } else if(evt.type==="error"){
-          started=true;
-          acc += (acc?"\n\n":"")+"⚠ "+evt.error; body.textContent = acc;
-        } else if(evt.type==="done"){ /* finalize below */ }
+          acc += (acc?"\n\n":"")+"⚠ "+evt.error; aMsg.text=acc;
+          if(state.currentChatId===chatId) liveUpdate(chatId);
+        }
       }
     }
-  }catch(err){ acc += (acc?"\n":"")+"⚠ network error: "+err.message; body.textContent=acc; }
+  }catch(err){ acc += (acc?"\n":"")+"⚠ network error: "+err.message; aMsg.text=acc; }
 
-  working.remove();
-  const ts = Date.now();
-  if(acc.trim()){ c.messages.push({role:"assistant", text:acc, ts}); }
-  save();
-  renderChat(); renderSidebar();  // finalize cleanly from state (copy buttons, code copies)
-  streaming=false; sendBtn.disabled=false; input.focus();
+  aMsg.text=acc; delete aMsg._working;
+  if(!acc.trim()){ const i=c.messages.indexOf(aMsg); if(i>=0) c.messages.splice(i,1); }
+  streamingChats.delete(chatId); delete workingLabel[chatId];
+  save(); renderSidebar();
+  if(state.currentChatId===chatId){ renderChat(); updateSendState(); input.focus(); }
 }
 
 // ---------- context menu ----------
@@ -584,7 +599,7 @@ recentList.addEventListener("click", e=>{ const chat=e.target.closest("[data-cha
 [projectList,recentList].forEach(list=> list.addEventListener("contextmenu", e=>{
   const chat=e.target.closest("[data-chat]"); if(chat){ e.preventDefault(); showCtx(e.clientX,e.clientY,chat.dataset.chat); } }));
 
-input.addEventListener("input", ()=>{ input.style.height="auto"; input.style.height=Math.min(input.scrollHeight,144)+"px"; });
+input.addEventListener("input", ()=>{ drafts[state.currentChatId]=input.value; input.style.height="auto"; input.style.height=Math.min(input.scrollHeight,144)+"px"; });
 input.addEventListener("keydown", e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(); } });
 sendBtn.onclick = send;
 
@@ -657,7 +672,7 @@ function startVoice(){ baseText=input.value.trim(); listening=true; el("mic").cl
 function stopVoice(){ listening=false; el("mic").classList.remove("on"); try{recog.stop();}catch(e){} }
 
 // ---------- init ----------
-renderSidebar(); renderChat(); initVoice(); bootstrap(); input.focus();
+renderSidebar(); renderChat(); updateSendState(); initVoice(); bootstrap(); input.focus();
 </script>
 </body>
 </html>
