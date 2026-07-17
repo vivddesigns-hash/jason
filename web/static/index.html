@@ -112,6 +112,8 @@
   .dots i { width:7px; height:7px; border-radius:50%; background:var(--sage); animation:pulse 1.2s infinite ease-in-out; }
   .dots i:nth-child(2){ animation-delay:.2s; } .dots i:nth-child(3){ animation-delay:.4s; }
   @keyframes pulse { 0%,60%,100%{opacity:.25; transform:scale(.8);} 30%{opacity:1; transform:scale(1);} }
+  .working { display:flex; align-items:center; gap:9px; color:var(--sage-dark); font-size:12.5px; padding:5px 2px 2px; font-style:italic; }
+  .working .wlabel { letter-spacing:.01em; }
 
   pre.code { background:var(--surface); border:1px solid var(--line); border-radius:10px; margin:10px 0; position:relative; overflow:hidden; }
   pre.code code { display:block; font-family:var(--mono); font-size:12.5px; line-height:1.6; padding:12px 14px;
@@ -428,11 +430,15 @@ async function send(){
   save(); renderSidebar(); renderChat();
 
   const innerEl = el("logInner");
-  // assistant placeholder with pulsing dots
   const aDiv = document.createElement("div"); aDiv.className="msg assistant";
-  aDiv.innerHTML = `<div class="who-label"><span class="j">J</span>Jason</div><div class="body"><span class="dots"><i></i><i></i><i></i></span></div>`;
+  aDiv.innerHTML = `<div class="who-label"><span class="j">J</span>Jason</div><div class="body"></div>`;
   innerEl.appendChild(aDiv);
   const body = aDiv.querySelector(".body");
+  // "working" indicator — sits right after Jason's message while the turn runs
+  const working = document.createElement("div"); working.className="working";
+  working.innerHTML = `<span class="dots"><i></i><i></i><i></i></span><span class="wlabel">Jason is working…</span>`;
+  innerEl.appendChild(working);
+  const wlabel = working.querySelector(".wlabel");
   log.scrollTop = log.scrollHeight;
 
   streaming=true; sendBtn.disabled=true;
@@ -450,22 +456,24 @@ async function send(){
         const line = frame.split("\n").find(l=>l.startsWith("data: ")); if(!line) continue;
         let evt; try{ evt=JSON.parse(line.slice(6)); }catch(e){ continue; }
         if(evt.type==="text"){
-          if(!started){ body.innerHTML=""; started=true; }
+          started=true;
           acc += evt.text; body.innerHTML = md(acc); wireCodeCopies(aDiv);
+          wlabel.textContent = "Jason is working…";
           log.scrollTop = log.scrollHeight;
         } else if(evt.type==="tool"){
-          if(!started){ const chip=document.createElement("span"); chip.className="tool-chip"; chip.textContent="· using "+evt.name;
-            body.innerHTML=""; body.appendChild(chip); }
+          wlabel.textContent = "using " + evt.name + "…";
+          log.scrollTop = log.scrollHeight;
         } else if(evt.type==="error"){
-          if(!started){ body.innerHTML=""; started=true; }
+          started=true;
           acc += (acc?"\n\n":"")+"⚠ "+evt.error; body.textContent = acc;
         } else if(evt.type==="done"){ /* finalize below */ }
       }
     }
-  }catch(err){ if(!started) body.innerHTML=""; acc += (acc?"\n":"")+"⚠ network error: "+err.message; body.textContent=acc; }
+  }catch(err){ acc += (acc?"\n":"")+"⚠ network error: "+err.message; body.textContent=acc; }
 
+  working.remove();
   const ts = Date.now();
-  c.messages.push({role:"assistant", text:acc, ts});
+  if(acc.trim()){ c.messages.push({role:"assistant", text:acc, ts}); }
   save();
   renderChat(); renderSidebar();  // finalize cleanly from state (copy buttons, code copies)
   streaming=false; sendBtn.disabled=false; input.focus();
