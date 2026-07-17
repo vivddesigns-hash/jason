@@ -11,6 +11,7 @@ transcript to disk on its own.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -22,7 +23,12 @@ from claude_agent_sdk import (
 from .persona import BASE, build_system_prompt
 from .hq_mcp import HQ_TOOL_NAMES, hq_server
 
-MODEL = "claude-haiku-4-5-20251001"
+MODEL = os.environ.get("JASON_MODEL", "claude-haiku-4-5-20251001")
+
+# Extra directories the agent may read/write beyond the project dir. On a LOCAL
+# Mac install, set JASON_EXTRA_DIRS to the Mac home (e.g. /Users/dwightjones) so
+# Jason can work on your files. Empty on the cloud instance (server has no Mac).
+EXTRA_DIRS = [d.strip() for d in os.environ.get("JASON_EXTRA_DIRS", "").split(",") if d.strip()]
 
 # Built-in tools we grant. Memory + research + skills + light shell.
 ALLOWED_TOOLS = [
@@ -69,6 +75,7 @@ def _make_options(resume: str | None) -> ClaudeAgentOptions:
         allowed_tools=ALLOWED_TOOLS,
         disallowed_tools=DISALLOWED_TOOLS,
         permission_mode="bypassPermissions",   # headless: no human to approve
+        add_dirs=EXTRA_DIRS,                    # local install: your Mac folders
         mcp_servers={"hq": hq_server},         # in-process HQ bridge
         resume=resume,
     )

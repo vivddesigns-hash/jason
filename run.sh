@@ -15,6 +15,6 @@ if [ -d .venv ]; then . .venv/bin/activate; fi
 case "${1:-web}" in
   heartbeat) exec python -m heartbeat.run_heartbeat ;;
   persona)   exec python -m agent.persona ;;
-  web)       exec uvicorn web.server:app --host 0.0.0.0 --port "${PORT:-8787}" ;;
+  web)       exec uvicorn web.server:app --host "${HOST:-127.0.0.1}" --port "${PORT:-8787}" ;;
   *) echo "unknown command: $1"; exit 1 ;;
 esac

@@ -31,6 +31,8 @@ SESSION_DAYS = 30
 COOKIE = "jason_session"
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "https://jason.tryfloatai.com").rstrip("/")
 DEFAULT_EMAIL = os.environ.get("RESET_EMAIL", "dwightjonesuk@gmail.com")
+# Local Mac install binds to 127.0.0.1 only, so a login is unnecessary friction.
+_DISABLE_AUTH = os.environ.get("DISABLE_AUTH") == "1"
 
 app = FastAPI(title="Jason")
 
@@ -104,7 +106,7 @@ _EXEMPT = {"/login", "/api/login", "/api/forgot", "/reset", "/api/reset", "/favi
 @app.middleware("http")
 async def auth_gate(request: Request, call_next):
     path = request.url.path
-    if path in _EXEMPT or path.startswith("/static/"):
+    if _DISABLE_AUTH or path in _EXEMPT or path.startswith("/static/"):
         return await call_next(request)
     auth = _load_auth()
     token = request.cookies.get(COOKIE, "")
