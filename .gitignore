@@ -10,3 +10,7 @@ state.json
 state.json.tmp
 recovery-code.txt
 memory/
+uploads/
+*.log
+jason-local.log
+jason-menubar.log

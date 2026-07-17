@@ -20,10 +20,19 @@ URL = "http://localhost:8787"
 ICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jason-menubar.png")
 DOMAIN = f"gui/{os.getuid()}"
 TARGET = f"{DOMAIN}/{LABEL}"
+SYNC = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sync.sh"))
 
 
 def _lc(*args):
     subprocess.run(["launchctl", *args], capture_output=True, text=True)
+
+
+def _sync(direction):
+    """Best-effort brain/chat sync with the cloud (pull on start, push on stop)."""
+    try:
+        subprocess.run(["bash", SYNC, direction], capture_output=True, timeout=90)
+    except Exception:
+        pass
 
 
 def _running() -> bool:
@@ -82,17 +91,20 @@ class JasonApp(rumps.App):
 
     def open_app(self, _):
         if not _running():
+            _sync("pull")
             _start()
         subprocess.run(["open", URL])  # default browser
 
     def start(self, _):
+        _sync("pull")   # bring the cloud's latest brain/chats down first
         _start()
-        _notify("Starting Jason…")
+        _notify("Starting Jason (synced with cloud)…")
         self.refresh(None)
 
     def stop(self, _):
         _stop()
-        _notify("Jason stopped.")
+        _sync("push")   # send this session's brain/chats up to the cloud
+        _notify("Jason stopped (synced to cloud).")
         self.refresh(None)
 
     def restart(self, _):
