@@ -23,7 +23,7 @@
   ::-webkit-scrollbar { width:9px; height:9px; }
   ::-webkit-scrollbar-thumb { background:var(--line-focus); border-radius:999px; border:2px solid transparent; background-clip:content-box; }
 
-  .app { display:flex; height:100vh; overflow:hidden; }
+  .app { display:flex; height:100vh; height:100dvh; overflow:hidden; }
 
   /* ---------- SIDEBAR ---------- */
   .sidebar { width:240px; flex:0 0 240px; background:var(--surface); border-right:1px solid var(--line);
@@ -70,7 +70,7 @@
   .sb-foot .who .m { font-size:11px; color:var(--ink-muted); }
 
   /* ---------- MAIN ---------- */
-  .main { flex:1; display:flex; flex-direction:column; height:100%; min-width:0; background:var(--canvas); }
+  .main { flex:1; display:flex; flex-direction:column; height:100%; min-width:0; background:var(--canvas); position:relative; }
   .chat-header { height:52px; flex:0 0 52px; border-bottom:1px solid var(--line); display:flex; align-items:center;
     gap:12px; padding:0 18px; }
   .hamburger { display:none; font-size:18px; color:var(--ink-soft); }
@@ -83,7 +83,12 @@
   .icon-btn:hover { background:var(--surface); color:var(--ink-soft); }
   .icon-btn.on { color:var(--terra); }
 
-  .log { flex:1; overflow-y:auto; }
+  .log { flex:1; overflow-y:auto; overscroll-behavior:contain; }
+  .to-top { position:absolute; right:20px; bottom:96px; z-index:9; display:none; align-items:center; gap:5px;
+    padding:7px 12px; border-radius:999px; background:var(--sage); color:#fff; font-size:12px; font-weight:600;
+    box-shadow:0 2px 10px rgba(45,43,42,.16); transition:background .15s; }
+  .to-top:hover { background:var(--sage-dark); }
+  .to-top.show { display:inline-flex; }
   .log-inner { max-width:720px; margin:0 auto; padding:28px 24px 40px; display:flex; flex-direction:column; gap:22px; }
 
   .welcome { text-align:center; margin:auto; padding:60px 20px; color:var(--ink-muted); }
@@ -197,6 +202,7 @@
     .app.nav-open .sidebar { transform:translateX(0); }
     .app.nav-open .scrim { display:block; position:fixed; inset:0; background:rgba(45,43,42,.28); z-index:35; }
     .hamburger { display:flex; }
+    .chat-header { position:sticky; top:0; z-index:10; background:var(--canvas); }
   }
 </style>
 </head>
@@ -232,6 +238,7 @@
       </div>
     </header>
     <div class="log" id="log"></div>
+    <button class="to-top" id="toTop" title="Back to top" aria-label="Back to top">↑ Top</button>
     <div class="composer">
       <div class="composer-inner">
         <div class="attachments" id="attachments"></div>
@@ -677,6 +684,11 @@ input.addEventListener("input", ()=>{ drafts[state.currentChatId]=input.value; i
 input.addEventListener("keydown", e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(); } });
 sendBtn.onclick = send;
 stopBtn.onclick = stopCurrent;
+
+// ---------- back-to-top (appears after scrolling down; scrolls the chat log) ----------
+const toTopBtn = el("toTop");
+log.addEventListener("scroll", ()=>{ toTopBtn.classList.toggle("show", log.scrollTop > 240); });
+toTopBtn.onclick = ()=> log.scrollTo({ top:0, behavior:"smooth" });
 
 // ---------- file attachments (documents + media) ----------
 let pending = [];  // {name, path, uploading, error}
