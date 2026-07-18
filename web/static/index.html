@@ -142,6 +142,9 @@
   .send { width:34px; height:34px; border-radius:50%; background:var(--sage); color:#fff; display:flex; align-items:center;
     justify-content:center; flex:0 0 34px; align-self:flex-end; transition:background .15s; }
   .send:hover { background:var(--sage-dark); } .send:disabled { opacity:.4; cursor:default; }
+  .stop { width:34px; height:34px; border-radius:50%; background:var(--terra); color:#fff; display:flex; align-items:center;
+    justify-content:center; flex:0 0 34px; align-self:flex-end; font-size:12px; transition:background .15s; }
+  .stop:hover { filter:brightness(.92); }
   .mic { color:var(--ink-muted); font-size:16px; width:34px; height:34px; border-radius:8px; flex:0 0 34px; align-self:flex-end; }
   .mic:hover { background:var(--surface-hover); color:var(--ink-soft); }
   .mic.on { color:#fff; background:var(--terra); animation:micpulse 1.3s infinite; }
@@ -154,6 +157,13 @@
   .attachments .chip .x { cursor:pointer; color:var(--ink-muted); font-weight:700; }
   .attachments .chip .x:hover { color:#a24; }
   .input-wrap.drag { border-color:var(--sage); background:var(--surface-hover); }
+  .queued { margin:0 0 8px; }
+  .queued .qchip { display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--line);
+    border-radius:8px; padding:5px 10px; font-size:12px; color:var(--ink-soft); }
+  .queued .qchip .qi { color:var(--sage-dark); font-weight:600; white-space:nowrap; }
+  .queued .qchip .qt { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink-muted); font-style:italic; }
+  .queued .qchip button { color:var(--ink-muted); font-weight:700; padding:1px 5px; border-radius:5px; flex:0 0 auto; }
+  .queued .qchip button:hover { background:var(--surface-hover); color:var(--ink); }
   .msg .files { display:flex; flex-wrap:wrap; gap:6px; margin-top:7px; }
   .msg .files .fchip { font-size:11px; color:var(--ink-soft); background:var(--surface); border:1px solid var(--line); border-radius:7px; padding:3px 8px; }
 
@@ -225,10 +235,12 @@
     <div class="composer">
       <div class="composer-inner">
         <div class="attachments" id="attachments"></div>
+        <div class="queued" id="queued" style="display:none"></div>
         <div class="input-wrap" id="inputWrap">
           <button class="attach" id="attach" title="Attach documents or media">📎</button>
           <textarea id="input" rows="1" placeholder="Message Jason…" autofocus></textarea>
           <button class="mic" id="mic" title="Voice input">🎤</button>
+          <button class="stop" id="stop" title="Stop Jason" style="display:none">■</button>
           <button class="send" id="send" title="Send">↑</button>
         </div>
         <div class="hint">Cmd+K new chat · Cmd+P new project · Cmd+F search</div>
@@ -310,6 +322,7 @@ const projById = id => state.projects.find(p=>p.id===id);
 // ---------- elements ----------
 const el = id => document.getElementById(id);
 const app=el("app"), log=el("log"), input=el("input"), sendBtn=el("send"), search=el("search");
+const stopBtn=el("stop"), queuedEl=el("queued");
 const projectList=el("projectList"), recentList=el("recentList");
 
 // ---------- sidebar render ----------
@@ -416,9 +429,9 @@ function newChat(projectId=null){
   const c = {id:genId(), projectId, title:"New chat", createdAt:Date.now(), pinned:false, messages:[]};
   state.chats.push(c); state.currentChatId=c.id;
   if(projectId){ const p=projById(projectId); if(p) p.collapsed=false; }  // reveal the new chat
-  save(); renderSidebar(); renderChat(); restoreDraft(); updateSendState(); closeNav(); input.focus();
+  save(); renderSidebar(); renderChat(); restoreDraft(); updateSendState(); renderQueued(); closeNav(); input.focus();
 }
-function openChat(id){ state.currentChatId=id; save(); renderSidebar(); renderChat(); restoreDraft(); updateSendState(); closeNav(); input.focus(); }
+function openChat(id){ state.currentChatId=id; save(); renderSidebar(); renderChat(); restoreDraft(); updateSendState(); renderQueued(); closeNav(); input.focus(); }
 function toggleProject(id){ const p=projById(id); p.collapsed=!p.collapsed; save(); renderSidebar(); }
 function nextColor(){ return PALETTE[state.projects.length % PALETTE.length]; }
 
@@ -426,12 +439,17 @@ function nextColor(){ return PALETTE[state.projects.length % PALETTE.length]; }
 const drafts = {};                 // ephemeral input drafts, per chat id
 const streamingChats = new Set();  // chat ids with a reply in progress
 const workingLabel = {};           // current "working…" text, per chat id
+const controllers = {};            // AbortController per streaming chat id (Stop)
+const queued = {};                 // at most one pending follow-up per chat id
 const anyStreaming = () => streamingChats.size > 0;
-function updateSendState(){ sendBtn.disabled = streamingChats.has(state.currentChatId); }
-function restoreDraft(){
-  input.value = drafts[state.currentChatId] || "";
-  input.style.height="auto"; input.style.height=Math.min(input.scrollHeight,144)+"px";
+function updateSendState(){
+  // Composer stays usable while streaming (a submit queues a follow-up); the
+  // Stop button appears only while the CURRENT chat is working.
+  stopBtn.style.display = streamingChats.has(state.currentChatId) ? "" : "none";
+  sendBtn.disabled = false;
 }
+function sizeInput(){ input.style.height="auto"; input.style.height=Math.min(input.scrollHeight,144)+"px"; }
+function restoreDraft(){ input.value = drafts[state.currentChatId] || ""; sizeInput(); }
 function streamingMsgOf(c){ for(let i=c.messages.length-1;i>=0;i--){ if(c.messages[i]._working) return c.messages[i]; } return null; }
 function liveUpdate(chatId){
   const c = state.chats.find(x=>x.id===chatId); if(!c) return;
@@ -443,15 +461,31 @@ function liveUpdate(chatId){
   log.scrollTop = log.scrollHeight;
 }
 
-async function send(){
+// Gather what's in the composer and either start a turn or — if THIS chat is
+// already streaming — queue it as the one pending follow-up (FR-003, option A).
+function send(){
   const c = cur();
   const text = input.value.trim();
   const ready = pending.filter(p=>p.path);
-  if((!text && ready.length===0) || streamingChats.has(c.id)) return;  // block only THIS chat
+  if(!text && ready.length===0) return;
   const chatId = c.id;
-  input.value=""; input.style.height="auto"; drafts[chatId]="";
+  if(streamingChats.has(chatId)){
+    if(!text) return;                 // only text is queueable; attachments stay in the composer
+    queued[chatId] = text;            // at most one — overwrites any previous pending
+    input.value=""; drafts[chatId]=""; sizeInput();
+    renderQueued();
+    return;
+  }
+  input.value=""; drafts[chatId]=""; sizeInput();
   const fileNames = ready.map(p=>p.name), attachPaths = ready.map(p=>p.path);
   pending = []; renderAttachments();
+  performSend(chatId, text, attachPaths, fileNames);
+}
+
+// Actually run a turn for (chatId, text, attachments) — independent of whatever
+// is currently in the composer, so a queued follow-up sends the right thing.
+async function performSend(chatId, text, attachPaths, fileNames){
+  const c = state.chats.find(x=>x.id===chatId); if(!c) return;
   let promptToSend = text;
   if(attachPaths.length){
     promptToSend = "The user attached these file(s) — read them with your file tools (Read/Bash) if relevant:\n"
@@ -461,14 +495,15 @@ async function send(){
   if(!c.title || c.title==="New chat"){ c.title = (text || fileNames[0] || "New chat").slice(0,42); }
   const aMsg = {role:"assistant", text:"", ts:Date.now(), _working:true};
   c.messages.push(aMsg);
+  const ctrl = new AbortController(); controllers[chatId] = ctrl;
   streamingChats.add(chatId); workingLabel[chatId]="Jason is working…";
   save(); renderSidebar();
   if(state.currentChatId===chatId){ renderChat(); updateSendState(); }
 
-  let acc="";
+  let acc="", stopped=false, errored=false;
   try{
     const resp = await fetch("/api/chat", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({session_id: chatId, prompt: promptToSend})});
+      body: JSON.stringify({session_id: chatId, prompt: promptToSend}), signal: ctrl.signal});
     if(resp.status===401){ location.href="/login"; return; }
     const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf="";
     while(true){
@@ -490,14 +525,53 @@ async function send(){
         }
       }
     }
-  }catch(err){ acc += (acc?"\n":"")+"⚠ network error: "+err.message; aMsg.text=acc; }
+  }catch(err){
+    if(err.name==="AbortError"){ stopped=true; }               // user hit Stop
+    else { errored=true; acc += (acc?"\n":"")+"⚠ network error: "+err.message; aMsg.text=acc; }
+  }
 
+  if(stopped){ acc += (acc?"\n\n":"")+"⏹ Stopped"; }           // keep the partial, mark it
   aMsg.text=acc; delete aMsg._working;
   if(!acc.trim()){ const i=c.messages.indexOf(aMsg); if(i>=0) c.messages.splice(i,1); }
-  streamingChats.delete(chatId); delete workingLabel[chatId];
+  streamingChats.delete(chatId); delete workingLabel[chatId]; delete controllers[chatId];
   save(); renderSidebar();
   if(state.currentChatId===chatId){ renderChat(); updateSendState(); input.focus(); }
+
+  // FR-003: flush the pending follow-up. On a clean finish it auto-sends; after
+  // a Stop (or a transport error) it goes back to the composer, editable.
+  if(chatId in queued){
+    const qtext = queued[chatId]; delete queued[chatId];
+    if(stopped || errored){ loadIntoComposer(chatId, qtext); }
+    else { performSend(chatId, qtext, [], []); }
+  }
+  if(state.currentChatId===chatId) renderQueued();
 }
+
+// ---------- pending / queued follow-up (FR-003) ----------
+function renderQueued(){
+  const q = queued[state.currentChatId];
+  if(q===undefined){ queuedEl.style.display="none"; queuedEl.innerHTML=""; return; }
+  const preview = q.length>72 ? q.slice(0,72)+"…" : q;
+  queuedEl.style.display="";
+  queuedEl.innerHTML = `<span class="qchip"><span class="qi">⏳ Pending</span>`
+    + `<span class="qt">${esc(preview)}</span>`
+    + `<button class="qedit" title="Edit">✎</button><button class="qx" title="Clear">×</button></span>`;
+  queuedEl.querySelector(".qedit").onclick = ()=> editQueued(state.currentChatId);
+  queuedEl.querySelector(".qx").onclick = ()=> clearQueued(state.currentChatId);
+}
+function loadIntoComposer(chatId, text){
+  const existing = drafts[chatId] || "";
+  drafts[chatId] = existing ? (text+"\n"+existing) : text;
+  if(state.currentChatId===chatId){ input.value = drafts[chatId]; sizeInput(); input.focus(); }
+}
+function editQueued(chatId){
+  if(!(chatId in queued)) return;
+  const q = queued[chatId]; delete queued[chatId];
+  loadIntoComposer(chatId, q);
+  if(state.currentChatId===chatId) renderQueued();
+}
+function clearQueued(chatId){ delete queued[chatId]; if(state.currentChatId===chatId) renderQueued(); }
+function stopCurrent(){ const ctrl = controllers[state.currentChatId]; if(ctrl) ctrl.abort(); }
 
 // ---------- context menu ----------
 let ctxEl=null;
@@ -602,6 +676,7 @@ recentList.addEventListener("click", e=>{ const chat=e.target.closest("[data-cha
 input.addEventListener("input", ()=>{ drafts[state.currentChatId]=input.value; input.style.height="auto"; input.style.height=Math.min(input.scrollHeight,144)+"px"; });
 input.addEventListener("keydown", e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); send(); } });
 sendBtn.onclick = send;
+stopBtn.onclick = stopCurrent;
 
 // ---------- file attachments (documents + media) ----------
 let pending = [];  // {name, path, uploading, error}
@@ -672,7 +747,7 @@ function startVoice(){ baseText=input.value.trim(); listening=true; el("mic").cl
 function stopVoice(){ listening=false; el("mic").classList.remove("on"); try{recog.stop();}catch(e){} }
 
 // ---------- init ----------
-renderSidebar(); renderChat(); updateSendState(); initVoice(); bootstrap(); input.focus();
+renderSidebar(); renderChat(); updateSendState(); renderQueued(); initVoice(); bootstrap(); input.focus();
 </script>
 </body>
 </html>

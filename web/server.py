@@ -224,8 +224,17 @@ async def chat(request: Request):
         if not prompt:
             yield _sse({"type": "error", "error": "empty prompt"})
             return
-        async for event in stream_chat(session_id, prompt):
-            yield _sse(event)
+        # Hold the generator so it can be closed deterministically. When the
+        # client aborts the fetch (Stop button) the connection drops; Starlette
+        # cancels this streaming task, which unwinds into the finally and closes
+        # stream_chat — cancelling the in-flight SDK turn rather than letting it
+        # keep running in the background.
+        agen = stream_chat(session_id, prompt)
+        try:
+            async for event in agen:
+                yield _sse(event)
+        finally:
+            await agen.aclose()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

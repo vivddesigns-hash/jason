@@ -99,8 +99,14 @@ async def stream_chat(web_session_id: str, prompt: str) -> AsyncIterator[dict]:
     resume = sessions.get(web_session_id)
     options = _make_options(resume)
 
+    # Hold an explicit reference to the SDK generator so the turn can be stopped
+    # deterministically. If the client aborts mid-turn, the web layer calls
+    # aclose() on this generator; the finally below then closes `q`, whose own
+    # `finally: await query.close()` terminates the CLI subprocess — so no model
+    # or tool work is left running in the background after a Stop.
+    q = query(prompt=prompt, options=options)
     try:
-        async for message in query(prompt=prompt, options=options):
+        async for message in q:
             # Assistant content: text + tool-use blocks
             content = getattr(message, "content", None)
             if content is not None and isinstance(content, list):
@@ -125,3 +131,7 @@ async def stream_chat(web_session_id: str, prompt: str) -> AsyncIterator[dict]:
                 yield {"type": "done", "session_id": sid}
     except Exception as exc:  # surface, don't crash the stream
         yield {"type": "error", "error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        # Runs on normal completion, error, AND on aclose()/GeneratorExit when
+        # the client stops the turn — tears down the SDK subprocess every time.
+        await q.aclose()
