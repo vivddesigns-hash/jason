@@ -80,12 +80,19 @@ skill's body only when a task calls for it. They fall into three tiers:
   `store-api-key`, `self-upgrade`, `notifications`. Present but need rewriting
   for this runtime (or retirement) before use.
 
-## Roadmap (beyond this first slice)
+## Roadmap
 
+### Completed (v1.0)
 - [x] Name the agent — **Jason** (`soul/IDENTITY.md`).
-- [x] Add HQ as an MCP server → Gmail/Calendar/ClickUp/Contacts without new
-      Google OAuth (`agent/hq_mcp.py`).
+- [x] Add HQ as an MCP server → Gmail/Calendar/ClickUp/Contacts without new Google OAuth (`agent/hq_mcp.py`).
+- [x] **Multi-user web version** — invite codes, per-user chat isolation, admin panel.
+- [x] **Desktop version (macOS)** — Electron + frozen Python binary, fully distributable DMG.
+- [x] Auth on the web chat (email + password + invite codes).
+
+### Planned
+- [ ] **Desktop version (Windows)** — MSI installer, PowerShell app control. Awaiting go-ahead.
 - [ ] Reintroduce `remember` / `recall` as in-process SDK MCP tools.
-- [ ] Background memory **consolidation** job (buffer → concepts) (as the original had).
-- [ ] Deploy to the Hetzner box (systemd unit for the web server + cron heartbeat).
-- [ ] Auth on the web chat before exposing it publicly.
+- [ ] Background memory **consolidation** job (buffer → concepts).
+- [ ] Deploy to production server (systemd unit for web server + cron heartbeat).
+- [ ] GitHub MCP integration (research + PR creation).
+- [ ] AI music generation MCP with reggae specialization (priority project, pending detailed requirements).
