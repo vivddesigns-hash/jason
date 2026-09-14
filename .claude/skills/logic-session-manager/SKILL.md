@@ -1,6 +1,6 @@
 ---
 name: "Logic Session Manager"
-description: "Find Logic Pro session files on the Mac, rename them to the naming convention, update the master session index at /workspace/logic-master-session-index.md, and create cross-reference tasks in ClickUp. Use when Dwight saves a new Logic session, asks to organize his Logic files, or needs session files tracked in the master index."
+description: "Find Logic Pro session files on the Mac, record their current filename (a separate local watcher owns renaming — this skill never renames Logic files itself), update the master session index at /workspace/logic-master-session-index.md, and create cross-reference tasks in ClickUp. Use when Dwight saves a new Logic session, asks to organize his Logic files, or needs session files tracked in the master index."
 metadata:
   jason:
     emoji: 🎵
@@ -19,7 +19,28 @@ metadata:
 
 # Logic Session Manager
 
-Organize Logic Pro session files: find them on the Mac, rename to the naming convention, update the master session index at /workspace/logic-master-session-index.md, and create cross-reference tasks in ClickUp.
+Organize Logic Pro session files: find them on the Mac, record their current
+name and path, update the master session index at
+/workspace/logic-master-session-index.md, and create cross-reference tasks
+in ClickUp.
+
+**This skill does not rename Logic files.** A local background watcher on
+Dwight's Mac (`~/Library/Scripts/autorename-watcher.py`, running as a
+LaunchAgent) already renames every `.logicx` project's outer folder
+automatically the moment it's saved, using a fixed
+`YYYY-MM-DD_ParentFolder_OriginalName` convention. It's the sole owner of
+that job. This skill's role is the layer on top: meaning, tracking, and
+cross-referencing — not the filename itself.
+
+This split exists because it broke once already: this skill used to rename
+files itself (`Artist - Collection - TrackNumber - Song Title.logicx`), a
+different convention from the watcher's. With both active, each would
+overwrite the other's rename indefinitely, and neither would recognize the
+other's work as "already done." See `references/failure-modes.md` for the
+Logic-internals-specific danger (never touch anything inside a `.logicx`
+package — only its outer folder name is ever safe to change, and only once
+nothing has it open) — that risk still applies to anyone touching these
+files by hand, even though this skill no longer renames anything itself.
 
 ## When to Use
 
@@ -58,25 +79,22 @@ find ~/Music/Logic -maxdepth 4 -iname "*<keyword>*" 2>/dev/null
 
 If still nothing → ask the user where they saved it.
 
-## Step 3 — Propose the rename
+## Step 3 — Record the current name and path (do not rename)
 
-Show the user the current filename and propose the renamed version following the convention:
+The file found in Step 2 is very likely already renamed by the local
+watcher — its outer folder name will typically already start with
+`YYYY-MM-DD_` (e.g. `2026-09-14_LitaMarie Music_LitaMarie - Emotions - 01 -
+Blind.logicx`). That's expected and correct. **Do not rename it, propose a
+rename, or run `mv` on it.** The current name and full path — whatever they
+already are — are exactly what goes into the index and ClickUp in the next
+steps.
 
-`Artist - Collection - TrackNumber - Song Title.logicx`
+If the file somehow does NOT yet have a date-stamp prefix (e.g. the watcher
+hasn't processed it yet, or is paused), still do not rename it yourself —
+just proceed with the name it currently has. The watcher will pick it up on
+its own; this skill's job is tracking, not naming.
 
-**Get explicit approval before renaming.** This modifies a file on the user's system.
-
-> ✓ Checkpoint: User must confirm they want the rename before executing.
-
-## Step 4 — Rename the file
-
-```bash
-mv "<current-path/current-name.logicx>" "<current-path/Artist - Collection - Track# - Song Title.logicx>"
-```
-
-Confirm the rename by running `ls -la "<current-path/>"`.
-
-## Step 5 — Update the master session index
+## Step 4 — Update the master session index
 
 Read the current file at `/workspace/logic-master-session-index.md`.
 
@@ -92,7 +110,7 @@ Lines to update:
 - Set Status based on what the user tells you (default: In Progress)
 - Add any other notes the user volunteers
 
-## Step 6 — Cross-reference in ClickUp
+## Step 5 — Cross-reference in ClickUp
 
 Determine which ClickUp space and folder this belongs to:
 
@@ -130,17 +148,16 @@ curl -s -X POST "https://api.clickup.com/api/v2/task/<TASK_ID>/comment" \
   -d '{"comment_text": "Comment here", "notify": false}'
 ```
 
-## Step 7 — Report the outcome
+## Step 6 — Report the outcome
 
 Tell the user what was done:
-- Where the file was found
-- What it was renamed to
+- Where the file was found, and its current name (not renamed by this skill)
 - What the master index now shows
 - What ClickUp task was created or updated
 
 ## SKILL COMPLETE WHEN
 
-- [ ] `host_bash` rename command executed (with user approval)
+- [ ] Session file found and its current name/path recorded (not renamed)
 - [ ] Master session index at /workspace/logic-master-session-index.md updated with new entry
 - [ ] ClickUp task created or updated with session details
 - [ ] User informed of the outcome

@@ -6,12 +6,29 @@
 - Check that the file was actually saved as a package (.logicx) not a folder (.logic)
 - Try searching `~/Music/Logic/` recursively with `-name "*<keyword>*" -o -name "*<keyword>*"`
 - The user may have saved it to a different location (Desktop, Documents, Downloads)
-
-### `mv` fails with "Permission denied"
-- The file may still be open in Logic Pro. Have the user close the session first.
+- Remember: the found filename will very likely already have a `YYYY-MM-DD_`
+  prefix from the local watcher — search patterns using `*<keyword>*`
+  (wildcard on both sides) still match, since the original name is preserved
+  as a suffix. Don't assume an exact/prefix match will find it.
 
 ### Multiple files match the search
-- Ask the user which they mean before renaming
+- Ask the user which they mean before recording it in the index
+
+### Renaming a file inside a `.logicx` package breaks the project — proven, not theoretical
+- **This actually happened**, on 2026-09-14: renaming an audio file inside a
+  `.logicx` package's `Media/Audio Files` folder (even with Logic fully
+  closed) caused Logic to show "Audio file not found" the next time that
+  project was opened — the track was unrecoverable without manually
+  relocating the file. Confirmed with a disposable test copy, not assumed.
+  Logic's project data references audio by exact filename, independent of
+  package-vs-folder save format.
+- **This is why this skill never renames anything inside a `.logicx`
+  package, and never renames the outer package either** — that job belongs
+  entirely to the local watcher (`~/Library/Scripts/autorename-watcher.py`),
+  which only renames the *outer* project folder, and only once `lsof`
+  confirms nothing has any file inside it open. If you ever find yourself
+  about to run `mv` on anything under a `.logicx` path for any reason —
+  stop. That's the watcher's job, not this skill's.
 
 ### ClickUp API returns `Status not found` (ECODE CRTSK_001 or ITEM_114)
 - The space only has default "to do" and "complete" statuses. Free-tier and new spaces lack custom statuses like "in progress".
@@ -31,10 +48,12 @@
 - **Credential retrieval:** `assistant credentials reveal --service clickup --field api_token`
 - **Mac path for Logic sessions:** ~/Music/Logic/
 - **LitaMarie folder:** ~/Music/Logic/LitaMarie Music/
-- **Naming convention:** `Artist - Collection - Track# - Song Title.logicx`
+- **Filename convention (applied by the watcher, not this skill):**
+  `YYYY-MM-DD_ParentFolder_OriginalName.logicx`, date = the project's real
+  creation date, not the day it was renamed
 - **Master session index file:** /workspace/logic-master-session-index.md
 
 ## Preconditions
 - Need host_bash access (Mac)
 - Need ClickUp API token configured in credential vault (service: clickup, field: api_token)
-- User must approve the rename before executing (filesystem mutation)
+- This skill never renames files — no filesystem-mutation approval needed for that step
