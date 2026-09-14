@@ -31,6 +31,18 @@ reversible — there's no cost to pausing on a false alarm, but real cost to
 leaving it running while something's actually wrong. Don't debate whether
 it's necessary; just do it, then investigate.
 
+**"Pause first" means run Step 1's `touch` command. It does not mean
+alarm first.** Those are different things. Pausing is cheap and silent —
+do it immediately, without announcing it as an emergency. What you tell
+Dwight afterward must be based on **current, live-checked state**, never
+on the rename log alone. The log in Step 3 is a historical record — most
+of it already happened, was already investigated, and is already resolved.
+Reading old log lines and reporting them as something happening *now* is
+the single most likely way to falsely alarm Dwight over nothing. Before
+you tell him anything is currently wrong, urgent, or needs his attention:
+verify it against the real filesystem right now (`ls`, `find`, `launchctl
+list`) — not against what the log says happened at some point today.
+
 ## Step 0 — Just checking status? Don't take action, and don't guess why.
 
 If Dwight is only asking whether it's paused/running (not asking you to
@@ -93,10 +105,37 @@ ps aux | grep -i "fswatch\|autorename" | grep -v grep
 tail -30 ~/Documents/Documents/JASON/auto-rename-log.txt
 ```
 
-Each line is `timestamp  old_path  ->  new_path`. This is the exact,
-literal undo list if anything needs to be reverted — reverse a line with
-`mv "<new_path>" "<old_path>"`, most-recent-first if several are related
-(so nested renames unwind correctly).
+Each line is `timestamp  old_path  ->  new_path`. **This is a history log,
+not a live status report — every line already happened, some of it hours
+ago, and may already be reviewed, approved, or fixed.** Seeing entries in
+here is not itself evidence that anything is currently wrong. Concretely:
+
+- **Do not tell Dwight something is "currently" renamed, broken, or needs
+  attention based on a log line alone.** Check whether the *old_path*
+  still exists and the *new_path* doesn't, or vice versa — that's what
+  tells you the actual current state, not the log entry itself.
+  ```bash
+  ls -d "<old_path>" 2>&1
+  ls -d "<new_path>" 2>&1
+  ```
+- **Do not extrapolate scale you haven't checked** ("hundreds of files")
+  — count what's actually there right now if scale matters:
+  ```bash
+  find <folder> -maxdepth 1 -iname "202*-*-*_*" | wc -l
+  ```
+- If several old log lines describe a large structural change (e.g. a
+  parent folder itself renamed) and you're not sure whether it's still in
+  that state, check the parent folder directly before saying anything to
+  Dwight — don't reason from the log entries alone.
+
+If, after checking current state, something genuinely looks wrong right
+now — say so plainly, with what you actually checked to confirm it. If
+current state looks normal, say that, even if the log shows a lot of
+historical activity. This is the exact, literal undo list if something
+*does* need reverting — reverse a line with `mv "<new_path>" "<old_path>"`,
+most-recent-first if several are related (so nested renames unwind
+correctly) — but only after confirming, from current state, that a revert
+is actually needed.
 
 ## Step 4 — Resume it
 
