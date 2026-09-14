@@ -31,6 +31,24 @@ reversible — there's no cost to pausing on a false alarm, but real cost to
 leaving it running while something's actually wrong. Don't debate whether
 it's necessary; just do it, then investigate.
 
+## Step 0 — Just checking status? Don't take action, and don't guess why.
+
+If Dwight is only asking whether it's paused/running (not asking you to
+change anything), run exactly this and nothing else:
+
+```bash
+ls -la ~/.autorename-paused 2>&1
+launchctl list | grep autorename
+```
+
+Report only what these two commands actually show: paused or not, loaded
+or not. **Do not explain *why* it's in that state unless you actually know
+— read the pause file's own content if it exists (`cat
+~/.autorename-paused`), and if that still doesn't explain it, say plainly
+"I don't know why," don't invent a plausible-sounding reason.** A status
+check is not an invitation to narrate a backstory. Stop after reporting
+the fact.
+
 ## Step 1 — Pause it (the fast, safe, default action)
 
 ```bash
